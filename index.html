@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sun_path budget calculator</title>
+<meta name="description" content="Calculate AF_UNIX socket path length against the sun_path budget. 108 bytes on Linux, 104 on macOS/BSD.">
+<link rel="canonical" href="https://truffle.ghostwright.dev/public/tools/sun-path/">
+<link rel="icon" type="image/png" sizes="32x32" href="/public/_assets/favicon-32.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="sun_path budget calculator">
+<meta property="og:description" content="Compute Unix domain socket path budget against the kernel limit before bind() returns EINVAL.">
+<meta property="og:url" content="https://truffle.ghostwright.dev/public/tools/sun-path/">
+<meta name="twitter:card" content="summary">
+
+<style>
+:root {
+  --paper: #f6f1e6;
+  --paper-raised: #fbf7ec;
+  --ink: #1c1814;
+  --ink-soft: #2e2822;
+  --quiet: #6b6157;
+  --rule: #e0d6c0;
+  --rule-soft: #ebe2cf;
+  --link: #7a4f1a;
+  --accent: #a57729;
+  --accent-bright: #c39040;
+  --code-bg: #ece3cc;
+  --code-ink: #2e2822;
+  --ok: #4f7a2e;
+  --warn: #a57729;
+  --over: #a83a25;
+  --font-body: "Iowan Old Style", "Palatino Linotype", Palatino, "URW Palladio L", "Book Antiqua", Georgia, serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #171310;
+    --paper-raised: #1e1814;
+    --ink: #f0e9d9;
+    --ink-soft: #e0d9c6;
+    --quiet: #9c9082;
+    --rule: #2e2820;
+    --rule-soft: #26211b;
+    --link: #d4a259;
+    --accent: #d4a259;
+    --accent-bright: #e4b574;
+    --code-bg: #201a15;
+    --code-ink: #e0d9c6;
+    --ok: #95c963;
+    --warn: #d4a259;
+    --over: #e07a5f;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font: 17px/1.6 var(--font-body);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+main {
+  max-width: 44rem;
+  padding: 2.5rem 1.5rem 4rem;
+  margin: 0 auto;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  margin: 0 0 0.7rem;
+}
+.eyebrow a {
+  color: var(--accent);
+  border-bottom: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
+  text-decoration: none;
+}
+
+h1 {
+  font-family: var(--font-mono);
+  font-size: clamp(1.6rem, 4vw, 2.1rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  margin: 0 0 0.5rem;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.lede {
+  font-size: 1.02rem;
+  color: var(--ink-soft);
+  margin: 0 0 2rem;
+  max-width: 36rem;
+}
+
+h2 {
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--quiet);
+  margin: 2.2rem 0 0.9rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+p { margin: 0 0 1rem; }
+
+a {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in oklab, var(--link) 30%, transparent);
+}
+a:hover { border-bottom-color: var(--link); }
+
+label.field-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--quiet);
+  margin: 0 0 0.5rem;
+}
+
+#path {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.8rem 0.95rem;
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  background: var(--paper-raised);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  resize: vertical;
+  -webkit-appearance: none;
+}
+#path:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+}
+fieldset legend {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--quiet);
+  padding: 0;
+  margin-bottom: 0.4rem;
+  width: 100%;
+}
+fieldset label {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+fieldset input[type="radio"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.result {
+  margin: 1.6rem 0 0;
+  padding: 1.1rem 1.2rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+.result-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.6rem;
+  align-items: baseline;
+  margin: 0 0 0.7rem;
+}
+.metric {
+  display: flex;
+  flex-direction: column;
+}
+.metric-label {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--quiet);
+  margin: 0 0 0.15rem;
+}
+.metric-value {
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.status {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  margin: 0.4rem 0 0;
+  font-weight: 600;
+}
+.status.ok { color: var(--ok); }
+.status.warn { color: var(--warn); }
+.status.over { color: var(--over); }
+
+.bar {
+  position: relative;
+  height: 14px;
+  background: var(--code-bg);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 0.9rem 0 0.3rem;
+}
+.bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: var(--ok);
+  transition: width 90ms ease, background 90ms ease;
+}
+.bar-fill.warn { background: var(--warn); }
+.bar-fill.over { background: var(--over); }
+.bar-overflow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(45deg, var(--over), var(--over) 4px, color-mix(in oklab, var(--over) 70%, var(--paper)) 4px, color-mix(in oklab, var(--over) 70%, var(--paper)) 8px);
+  opacity: 0.55;
+}
+.bar-tick {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--ink-soft);
+  opacity: 0.4;
+}
+.bar-legend {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--quiet);
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.3rem;
+}
+
+table.segments {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  margin: 0;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+table.segments th, table.segments td {
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+  border-bottom: 1px solid var(--rule-soft);
+}
+table.segments th {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--quiet);
+  font-weight: 600;
+  background: color-mix(in oklab, var(--paper-raised) 70%, var(--rule));
+}
+table.segments td.num {
+  text-align: right;
+  color: var(--ink-soft);
+}
+table.segments td.seg {
+  word-break: break-all;
+  color: var(--ink);
+}
+table.segments tr:last-child td { border-bottom: 0; }
+table.segments tr.over td {
+  background: color-mix(in oklab, var(--over) 12%, transparent);
+  color: var(--over);
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.presets button {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  padding: 0.4rem 0.7rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  -webkit-appearance: none;
+}
+.presets button:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.presets button:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.note {
+  font-size: 0.94rem;
+  color: var(--ink-soft);
+}
+.note code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+footer {
+  margin: 4rem 0 0;
+  padding: 1.2rem 0 0;
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--quiet);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  justify-content: space-between;
+}
+
+@media (max-width: 480px) {
+  main { padding: 1.8rem 1.1rem 3rem; }
+  .metric-value { font-size: 1.2rem; }
+  fieldset { gap: 0.3rem 0.8rem; }
+}
+</style>
+</head>
+<body>
+
+<main>
+
+<p class="eyebrow"><a href="/public/tools/">truffle / tools</a></p>
+<h1>sun_path budget</h1>
+<p class="lede">Compose a Unix domain socket path and see whether it fits under the AF_UNIX <code>sun_path</code> limit. 108 bytes on Linux, 104 on macOS/BSD. One byte over and <code>bind()</code> returns <code>EINVAL</code>.</p>
+
+<label class="field-label" for="path">Path</label>
+<textarea id="path" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" placeholder="/tmp/.X11-unix/X0"></textarea>
+
+<fieldset>
+  <legend>Platform</legend>
+  <label><input type="radio" name="platform" value="linux" checked> Linux / Solaris (108)</label>
+  <label><input type="radio" name="platform" value="bsd"> macOS / BSD (104)</label>
+  <label><input type="radio" name="platform" value="windows"> Windows AF_UNIX (108)</label>
+</fieldset>
+
+<div class="result" id="result" aria-live="polite">
+  <div class="result-row">
+    <div class="metric">
+      <span class="metric-label">Bytes</span>
+      <span class="metric-value" id="used">0</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Budget</span>
+      <span class="metric-value" id="budget">108</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label" id="rem-label">Remaining</span>
+      <span class="metric-value" id="rem">108</span>
+    </div>
+  </div>
+  <div class="bar" aria-hidden="true">
+    <div class="bar-fill" id="bar-fill" style="width: 0%"></div>
+    <div class="bar-overflow" id="bar-overflow" style="display: none;"></div>
+    <div class="bar-tick" id="bar-portable" style="left: 99.07%"></div>
+  </div>
+  <div class="bar-legend">
+    <span>0</span>
+    <span id="bar-portable-label" style="position: relative; left: -0.4em;">portable (107)</span>
+    <span id="bar-budget-label">108</span>
+  </div>
+  <p class="status ok" id="status">Empty path. Budget is 108 bytes.</p>
+</div>
+
+<h2>Per-segment breakdown</h2>
+<table class="segments" id="segments" aria-label="Per-segment byte breakdown">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Segment</th>
+      <th style="text-align:right">Bytes</th>
+      <th style="text-align:right">Cumulative</th>
+    </tr>
+  </thead>
+  <tbody id="segments-body">
+    <tr><td colspan="4" style="color: var(--quiet); text-align: center; padding: 1rem;">No segments yet.</td></tr>
+  </tbody>
+</table>
+
+<h2>Presets</h2>
+<div class="presets">
+  <button type="button" data-preset="x11">X11 socket</button>
+  <button type="button" data-preset="dbus-session">D-Bus session</button>
+  <button type="button" data-preset="dbus-system">D-Bus system</button>
+  <button type="button" data-preset="systemd">systemd notify</button>
+  <button type="button" data-preset="docker">Docker daemon</button>
+  <button type="button" data-preset="ssh-agent">ssh-agent</button>
+  <button type="button" data-preset="pnpm-tsx">pnpm-store + tsx (root)</button>
+  <button type="button" data-preset="xdg-runtime">$XDG_RUNTIME_DIR app</button>
+  <button type="button" data-preset="clear">clear</button>
+</div>
+
+<h2>About</h2>
+<p class="note">The kernel struct <code>sockaddr_un</code> reserves a fixed-size character array for the path. Linux and Solaris give you 108 bytes including the optional null terminator; macOS, FreeBSD, NetBSD, and OpenBSD give you 104. Compose a path one byte longer than that and <code>bind(2)</code> returns <code>EINVAL</code> from the kernel before your code ever touches the filesystem.</p>
+<p class="note">Whether you need the null terminator depends on the implementation. Portable code null-terminates, so the safe usable budget is <strong>budget minus one</strong>. The dashed tick on the bar marks that boundary.</p>
+<p class="note">Composition matters more than your single application's path. A tempdir prefix plus a tool-specific subdirectory plus a per-pid socket name plus an IPC suffix can run past 108 bytes before you write a single line of socket code. <code>pnpm</code> issue <a href="https://github.com/pnpm/pnpm/issues/12222" rel="noopener">#12222</a> is the worked example that motivated this tool.</p>
+<p class="note">Byte length is measured in UTF-8. Multi-byte characters (Unicode in paths) count for more than their visual width. The kernel sees bytes, not codepoints.</p>
+
+<footer>
+  <span><a href="/public/tools/">↩ tools</a></span>
+  <span><a href="https://github.com/truffle-dev/tool-sun-path" rel="noopener">source on github</a></span>
+  <span>MIT</span>
+</footer>
+
+</main>
+
+<script>
+(function () {
+  const PRESETS = {
+    "x11": "/tmp/.X11-unix/X0",
+    "dbus-session": "/run/user/1000/bus",
+    "dbus-system": "/var/run/dbus/system_bus_socket",
+    "systemd": "/run/systemd/notify",
+    "docker": "/var/run/docker.sock",
+    "ssh-agent": "/tmp/ssh-XXXXXXXXXXXX/agent.99999",
+    "pnpm-tsx": "/root/.local/share/pnpm/store/v11/tmp/_tmp_99999_a1b2c3d4e5f60708091011121314151617/node_modules/.tmp/tsx-1/99999.pipe",
+    "xdg-runtime": "/run/user/1000/myapp/control.sock",
+    "clear": ""
+  };
+
+  const BUDGETS = {
+    "linux": 108,
+    "bsd": 104,
+    "windows": 108
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const enc = new TextEncoder();
+  const byteLen = (s) => enc.encode(s).length;
+
+  const pathEl = $("path");
+  const usedEl = $("used");
+  const budgetEl = $("budget");
+  const remEl = $("rem");
+  const remLabelEl = $("rem-label");
+  const statusEl = $("status");
+  const barFill = $("bar-fill");
+  const barOverflow = $("bar-overflow");
+  const barPortable = $("bar-portable");
+  const barPortableLabel = $("bar-portable-label");
+  const barBudgetLabel = $("bar-budget-label");
+  const segBody = $("segments-body");
+
+  function currentPlatform () {
+    const r = document.querySelector('input[name="platform"]:checked');
+    return r ? r.value : "linux";
+  }
+
+  function setPlatform (p) {
+    const r = document.querySelector('input[name="platform"][value="' + p + '"]');
+    if (r) r.checked = true;
+  }
+
+  function splitSegments (path) {
+    if (!path) return [];
+    const parts = path.split("/");
+    const out = [];
+    for (let i = 0; i < parts.length; i++) {
+      const seg = parts[i];
+      const isLast = i === parts.length - 1;
+      if (i === 0 && seg === "") {
+        out.push({ text: "/", bytes: 1, kind: "root" });
+      } else if (seg === "") {
+        if (!isLast) out.push({ text: "/", bytes: 1, kind: "sep" });
+      } else {
+        const prefix = (i > 0 && out.length > 0 && out[out.length - 1].kind !== "root") ? "/" : "";
+        out.push({ text: prefix + seg, bytes: byteLen(prefix + seg), kind: "name" });
+      }
+    }
+    return out;
+  }
+
+  function render () {
+    const path = pathEl.value;
+    const platform = currentPlatform();
+    const budget = BUDGETS[platform];
+    const portable = budget - 1;
+    const used = byteLen(path);
+    const remaining = budget - used;
+
+    usedEl.textContent = used;
+    budgetEl.textContent = budget;
+    remEl.textContent = remaining >= 0 ? remaining : (remaining);
+    remLabelEl.textContent = remaining >= 0 ? "Remaining" : "Over by";
+    if (remaining < 0) remEl.textContent = String(-remaining);
+
+    const pctUsed = Math.min(100, (used / budget) * 100);
+    barFill.style.width = pctUsed + "%";
+    barFill.classList.remove("warn", "over");
+    barOverflow.style.display = "none";
+
+    if (used === 0) {
+      statusEl.className = "status ok";
+      statusEl.textContent = "Empty path. Budget is " + budget + " bytes.";
+    } else if (used > budget) {
+      const overshoot = used - budget;
+      const overWidth = Math.min(100, (overshoot / budget) * 100);
+      barOverflow.style.display = "block";
+      barOverflow.style.left = "100%";
+      barOverflow.style.width = overWidth + "%";
+      barFill.classList.add("over");
+      statusEl.className = "status over";
+      statusEl.textContent = "Over budget by " + overshoot + " byte" + (overshoot === 1 ? "" : "s") + ". bind() will return EINVAL.";
+    } else if (used > portable) {
+      barFill.classList.add("warn");
+      statusEl.className = "status warn";
+      statusEl.textContent = "Fits raw, but no room for a portable null terminator. " + (budget - used) + " byte left.";
+    } else if (used > budget * 0.85) {
+      barFill.classList.add("warn");
+      statusEl.className = "status warn";
+      statusEl.textContent = "Tight. " + (budget - used) + " bytes remain (" + (portable - used) + " portable).";
+    } else {
+      statusEl.className = "status ok";
+      statusEl.textContent = "Fits. " + (budget - used) + " bytes remain (" + (portable - used) + " portable).";
+    }
+
+    const portablePct = (portable / budget) * 100;
+    barPortable.style.left = portablePct + "%";
+    barPortableLabel.textContent = "portable (" + portable + ")";
+    barBudgetLabel.textContent = String(budget);
+
+    const segments = splitSegments(path);
+    if (segments.length === 0) {
+      segBody.innerHTML = '<tr><td colspan="4" style="color: var(--quiet); text-align: center; padding: 1rem;">No segments yet.</td></tr>';
+    } else {
+      const rows = [];
+      let cum = 0;
+      for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        cum += s.bytes;
+        const over = cum > budget;
+        rows.push(
+          '<tr' + (over ? ' class="over"' : '') + '>' +
+          '<td class="num">' + (i + 1) + '</td>' +
+          '<td class="seg">' + escapeHtml(s.text) + '</td>' +
+          '<td class="num">' + s.bytes + '</td>' +
+          '<td class="num">' + cum + (over ? " ✕" : "") + '</td>' +
+          '</tr>'
+        );
+      }
+      segBody.innerHTML = rows.join("");
+    }
+
+    writeHash(path, platform);
+  }
+
+  function escapeHtml (s) {
+    return s.replace(/[&<>"']/g, function (c) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+    });
+  }
+
+  function writeHash (path, platform) {
+    const params = new URLSearchParams();
+    if (path) params.set("path", path);
+    if (platform !== "linux") params.set("platform", platform);
+    const newHash = params.toString();
+    if (newHash) {
+      history.replaceState(null, "", "#" + newHash);
+    } else if (location.hash) {
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+  }
+
+  function readHash () {
+    if (!location.hash) return;
+    const params = new URLSearchParams(location.hash.slice(1));
+    const path = params.get("path");
+    const platform = params.get("platform");
+    if (path !== null) pathEl.value = path;
+    if (platform && BUDGETS[platform]) setPlatform(platform);
+  }
+
+  document.querySelectorAll(".presets button[data-preset]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const key = btn.getAttribute("data-preset");
+      if (key in PRESETS) {
+        pathEl.value = PRESETS[key];
+        pathEl.focus();
+        render();
+      }
+    });
+  });
+
+  pathEl.addEventListener("input", render);
+  document.querySelectorAll('input[name="platform"]').forEach(function (r) {
+    r.addEventListener("change", render);
+  });
+  window.addEventListener("hashchange", function () {
+    readHash();
+    render();
+  });
+
+  readHash();
+  render();
+})();
+</script>
+
+</body>
+</html>
