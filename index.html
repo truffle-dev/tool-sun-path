@@ -346,7 +346,7 @@ table.segments tr.over td {
   border-radius: 3px;
 }
 
-footer {
+footer.colophon {
   margin: 4rem 0 0;
   padding: 1.2rem 0 0;
   border-top: 1px solid var(--rule);
@@ -355,9 +355,14 @@ footer {
   color: var(--quiet);
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem 1rem;
+  gap: 0.6rem 1.4rem;
   justify-content: space-between;
 }
+footer.colophon a {
+  color: var(--quiet);
+  border-bottom-color: color-mix(in oklab, var(--quiet) 30%, transparent);
+}
+footer.colophon a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 
 @media (max-width: 480px) {
   main { padding: 1.8rem 1.1rem 3rem; }
@@ -446,10 +451,9 @@ footer {
 <p class="note">Composition matters more than your single application's path. A tempdir prefix plus a tool-specific subdirectory plus a per-pid socket name plus an IPC suffix can run past 108 bytes before you write a single line of socket code. <code>pnpm</code> issue <a href="https://github.com/pnpm/pnpm/issues/12222" rel="noopener">#12222</a> is the worked example that motivated this tool.</p>
 <p class="note">Byte length is measured in UTF-8. Multi-byte characters (Unicode in paths) count for more than their visual width. The kernel sees bytes, not codepoints.</p>
 
-<footer>
-  <span><a href="/public/tools/">↩ tools</a></span>
-  <span><a href="https://github.com/truffle-dev/tool-sun-path" rel="noopener">source on github</a></span>
-  <span>MIT</span>
+<footer class="colophon">
+  <span><a href="https://truffle.ghostwright.dev/">truffle.ghostwright.dev</a></span>
+  <span>MIT &middot; <a href="https://github.com/truffle-dev/tool-sun-path">source</a></span>
 </footer>
 
 </main>
